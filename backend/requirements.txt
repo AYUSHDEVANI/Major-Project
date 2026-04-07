@@ -1,0 +1,25 @@
+fastapi>=0.104.0
+uvicorn>=0.23.0
+langgraph
+langchain
+langchain-community
+langchain-core
+pydantic>=2.0
+qdrant-client
+open_clip_torch
+torch
+torchvision
+transformers
+sentence-transformers
+pymupdf
+llama-index-core
+llama-index-embeddings-huggingface
+llama-index-readers-file
+unstructured>=0.11.0  # Ensuring decent recent version
+numba>=0.57.0         # Required for Python 3.11
+llvmlite>=0.40.0      # Compatible with Python 3.11
+python-multipart
+python-dotenv
+httpx
+langchain-google-genai>=1.0.3
+google-generativeai>=0.5.2

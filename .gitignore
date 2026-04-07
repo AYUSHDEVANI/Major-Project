@@ -1,0 +1,28 @@
+# Environment secrets
+.env
+.env.*
+
+# Databases
+*.db
+local_qdrant_db/
+
+# Node.js
+node_modules/
+dist/
+.DS_Store
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Large data files
+# data/
