@@ -624,5 +624,5 @@ This project is developed as a Major Project for academic purposes.
 ---
 
 <p align="center">
-  <strong>Built with ❤️ using FastAPI, LangChain, LangGraph, React, and Qdrant</strong>
+  <strong>Built with using FastAPI, LangChain, LangGraph, React, and Qdrant</strong>
 </p>
