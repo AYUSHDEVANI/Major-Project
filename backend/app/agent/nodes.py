@@ -263,7 +263,7 @@ async def roi_node(state: AgentState):
         if db:
             db.close()
     
-    return {"roi_data": roi_data}
+    return {"roi_data": roi_data, "history_id": log_entry.id if 'log_entry' in locals() else None}
 
 async def erp_node(state: AgentState):
     print("--- CONNECTING TO ERP SYSTEM ---")

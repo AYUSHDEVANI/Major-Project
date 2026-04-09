@@ -1,6 +1,7 @@
 export interface AgentState {
     image_path: string;
     query_text?: string;
+    history_id?: number;
     retrieved_docs: RetrievedDoc[];
     analysis_result: AnalysisResult;
     safety_warnings: string[];

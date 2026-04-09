@@ -4,6 +4,7 @@ import AnalysisResult from './components/AnalysisResult';
 import HistoryView from './components/HistoryView';
 import AdminPanel from './components/AdminPanel';
 import SuperAdminPanel from './components/SuperAdminPanel';
+import ChatWidget from './components/ChatWidget';
 import { Settings, LogOut, User as UserIcon } from 'lucide-react';
 import { useAuthStore } from './store/authStore';
 import LoginPage from './components/LoginPage';
@@ -14,6 +15,7 @@ function App() {
   
   const isSuperAdmin = user?.role === 'superadmin';
   const isAdmin = user?.role === 'admin';
+  const isViewer = user?.role === 'viewer';
 
   // Hydrate session
   useEffect(() => {
@@ -27,11 +29,16 @@ function App() {
             if (view !== 'superadmin' && view !== 'analyze' && view !== 'history') {
                 setView('superadmin');
             }
+        } else if (isViewer) {
+            // Viewers shouldn't see 'analyze' or 'admin' 
+            if (view !== 'history') {
+                setView('history');
+            }
         } else if (view === 'superadmin') {
             setView('analyze');
         }
     }
-  }, [isAuthenticated, isSuperAdmin, view]);
+  }, [isAuthenticated, isSuperAdmin, isViewer, view]);
 
 
   // If not authenticated, render only the Login Page
@@ -90,13 +97,15 @@ function App() {
                 {/* Left Column: Navigation & Upload */}
                 <div className="lg:col-span-4 space-y-6">
                    {/* Navigation Cards */}
-                   <div className={`grid ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'} gap-4`}>
-                      <button 
-                        onClick={() => setView('analyze')}
-                        className={`p-4 rounded-xl text-center transition ${view === 'analyze' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-                      >
-                         <div className="font-semibold">Analyze</div>
-                      </button>
+                   <div className={`grid ${isAdmin ? 'grid-cols-3' : isViewer ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>
+                      {!isViewer && (
+                        <button 
+                          onClick={() => setView('analyze')}
+                          className={`p-4 rounded-xl text-center transition ${view === 'analyze' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                        >
+                           <div className="font-semibold">Analyze</div>
+                        </button>
+                      )}
                       <button 
                         onClick={() => setView('history')}
                         className={`p-4 rounded-xl text-center transition ${view === 'history' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
@@ -128,8 +137,12 @@ function App() {
             </div>
         )}
       </main>
+
+      {/* Global Support Chat */}
+      <ChatWidget />
     </div>
   );
 }
+
 
 export default App;

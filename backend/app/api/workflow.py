@@ -42,6 +42,7 @@ async def analyze_machine(
         "analysis_result": {},
         "safety_warnings": [],
         "roi_data": {},
+        "history_id": None,
         "erp_result": {}
     }
     

@@ -122,9 +122,18 @@ def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends(), 
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account has been disabled. Contact your company admin.",
         )
-    
-    # Look up company name for JWT
+
+    # Look up company and check its status
     company = db.query(Company).filter(Company.id == user.company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+        
+    if not company.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your company account has been suspended. Please contact platform support.",
+        )
+    
     company_name = company.name if company else "Unknown"
         
     access_token = create_access_token(user, company_name)

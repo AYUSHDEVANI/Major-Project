@@ -25,6 +25,7 @@ def list_companies(db: Session = Depends(get_db), current_user: User = Depends(s
             "id": company.id,
             "name": company.name,
             "created_at": company.created_at,
+            "is_active": company.is_active,
             "user_count": user_count,
             "document_count": doc_count,
             "chunk_count": chunk_count_result or 0
@@ -66,3 +67,83 @@ def list_all_documents(db: Session = Depends(get_db), current_user: User = Depen
             "company_id": doc.company_id
         })
     return results
+
+@router.patch("/users/{user_id}/toggle", summary="Enable/disable any user globally")
+def toggle_user_global(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_only),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot toggle your own superadmin account")
+    
+    user.is_active = not user.is_active
+    db.commit()
+    return {"message": f"User {user.email} {'enabled' if user.is_active else 'disabled'}"}
+
+@router.delete("/users/{user_id}", summary="Delete any user globally")
+def delete_user_global(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_only),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own superadmin account")
+    
+    db.delete(user)
+    db.commit()
+    return {"message": f"User {user.email} deleted"}
+
+@router.patch("/documents/{doc_id}/toggle", summary="Activate/deactivate any document globally")
+def toggle_document_global(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_only),
+):
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    doc.is_active = not doc.is_active
+    db.commit()
+    return {"message": f"Document {doc.filename} {'activated' if doc.is_active else 'deactivated'}"}
+
+@router.delete("/documents/{doc_id}", summary="Delete any document globally")
+def delete_document_global(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_only),
+):
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    db.delete(doc)
+    db.commit()
+    return {"message": f"Document {doc.filename} deleted"}
+
+@router.patch("/companies/{company_id}/toggle", summary="Enable/disable any company globally")
+def toggle_company_global(
+    company_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_only),
+):
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    # Toggle company status
+    company.is_active = not company.is_active
+    
+    # If company is disabled, cascade deactivate all users
+    if not company.is_active:
+        db.query(User).filter(User.company_id == company_id).update({"is_active": False})
+    
+    db.commit()
+    return {"message": f"Company {company.name} {'enabled' if company.is_active else 'suspended and all users deactivated'}"}

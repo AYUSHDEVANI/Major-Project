@@ -2,7 +2,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import ingest, search, workflow, history, erp, auth, admin, superadmin
+from app.api import ingest, search, workflow, history, erp, auth, admin, superadmin, chat
 
 from app.core.sql_db import init_db
 
@@ -36,6 +36,7 @@ app.include_router(history.router, prefix="/api/v1", tags=["History"])
 app.include_router(erp.router, prefix="/api/v1", tags=["ERP Integration"])
 app.include_router(admin.router, prefix="/api/v1", tags=["Admin Panel"])
 app.include_router(superadmin.router, prefix="/api/v1", tags=["Super Admin"])
+app.include_router(chat.router, prefix="/api/v1", tags=["Support Chat"])
 
 @app.get("/")
 async def root():

@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client';
-import { Building2, Users, FileText, Database, Shield, AlertCircle } from 'lucide-react';
+import { Building2, Users, FileText, Database, Shield, AlertCircle, Trash2, Power, PowerOff } from 'lucide-react';
 
 interface CompanyMetrics {
   id: number;
   name: string;
   created_at: string;
+  is_active: boolean;
   user_count: number;
   document_count: number;
   chunk_count: number;
@@ -58,6 +59,64 @@ export default function SuperAdminPanel() {
       setLoading(false);
     }
   }, []);
+
+  const onToggleUser = async (userId: number) => {
+    try {
+        await api.toggleSuperAdminUser(userId);
+        setUsers(users.map(u => u.id === userId ? { ...u, is_active: !u.is_active } : u));
+    } catch (e: any) {
+        alert(e.response?.data?.detail || "Failed to toggle user");
+    }
+  };
+
+  const onDeleteUser = async (userId: number) => {
+    if (!confirm("Are you sure you want to delete this user globally? This cannot be undone.")) return;
+    try {
+        await api.deleteSuperAdminUser(userId);
+        setUsers(users.filter(u => u.id !== userId));
+    } catch (e: any) {
+        alert(e.response?.data?.detail || "Failed to delete user");
+    }
+  };
+
+  const onToggleDoc = async (docId: number) => {
+    try {
+        await api.toggleSuperAdminDocument(docId);
+        setDocs(docs.map(d => d.id === docId ? { ...d, is_active: !d.is_active } : d));
+    } catch (e: any) {
+        alert(e.response?.data?.detail || "Failed to toggle document");
+    }
+  };
+
+  const onDeleteDoc = async (docId: number) => {
+    if (!confirm("Are you sure you want to delete this document globally?")) return;
+    try {
+        await api.deleteSuperAdminDocument(docId);
+        setDocs(docs.filter(d => d.id !== docId));
+    } catch (e: any) {
+        alert(e.response?.data?.detail || "Failed to delete document");
+    }
+  };
+
+  const onToggleCompany = async (companyId: number) => {
+    try {
+        await api.toggleSuperAdminCompany(companyId);
+        // Optimistically update company and ALL users belonging to it if it was disabled
+        setCompanies(companies.map(c => {
+            if (c.id === companyId) {
+                const newStatus = !c.is_active;
+                // If we JUST disabled it, we need to update the users list too
+                if (!newStatus) {
+                    setUsers(users.map(u => u.company_name === c.name ? { ...u, is_active: false } : u));
+                }
+                return { ...c, is_active: newStatus };
+            }
+            return c;
+        }));
+    } catch (e: any) {
+        alert(e.response?.data?.detail || "Failed to toggle company");
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -171,8 +230,10 @@ export default function SuperAdminPanel() {
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Company Name</th>
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Users</th>
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Documents</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Chunks Processed</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Registered On</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Chunks</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Registered</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -183,7 +244,21 @@ export default function SuperAdminPanel() {
                         <td className="px-4 py-3 text-sm text-gray-600 font-medium"><Users className="w-3 h-3 inline mr-1"/>{c.user_count}</td>
                         <td className="px-4 py-3 text-sm text-gray-600 font-medium"><FileText className="w-3 h-3 inline mr-1"/>{c.document_count}</td>
                         <td className="px-4 py-3 text-sm text-gray-600 font-medium">{c.chunk_count.toLocaleString()}</td>
+                        <td className="px-4 py-3">
+                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${c.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                             {c.is_active ? 'Active' : 'Suspended'}
+                           </span>
+                        </td>
                         <td className="px-4 py-3 text-xs text-gray-500">{new Date(c.created_at).toLocaleDateString()}</td>
+                        <td className="px-4 py-3 text-right">
+                            <button 
+                                onClick={() => onToggleCompany(c.id)}
+                                title={c.is_active ? "Suspend Company" : "Activate Company"}
+                                className={`p-1.5 rounded-lg transition ${c.is_active ? 'text-amber-600 hover:bg-amber-50' : 'text-green-600 hover:bg-green-50'}`}
+                            >
+                                {c.is_active ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+                            </button>
+                        </td>
                       </tr>
                     ))}
                     {companies.length === 0 && (
@@ -204,6 +279,7 @@ export default function SuperAdminPanel() {
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Email</th>
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Role</th>
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -216,6 +292,24 @@ export default function SuperAdminPanel() {
                            <span className={`text-xs font-medium ${u.is_active ? 'text-green-600' : 'text-red-500'}`}>
                              {u.is_active ? 'Active' : 'Disabled'}
                            </span>
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <div className="flex justify-end space-x-2">
+                                <button 
+                                    onClick={() => onToggleUser(u.id)}
+                                    title={u.is_active ? "Disable User" : "Enable User"}
+                                    className={`p-1.5 rounded-lg transition ${u.is_active ? 'text-amber-600 hover:bg-amber-50' : 'text-green-600 hover:bg-green-50'}`}
+                                >
+                                    {u.is_active ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+                                </button>
+                                <button 
+                                    onClick={() => onDeleteUser(u.id)}
+                                    title="Delete User"
+                                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
                         </td>
                       </tr>
                     ))}
@@ -236,6 +330,7 @@ export default function SuperAdminPanel() {
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Chunks</th>
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Status</th>
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Uploaded</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -251,6 +346,24 @@ export default function SuperAdminPanel() {
                            </span>
                         </td>
                         <td className="px-4 py-3 text-xs text-gray-500">{new Date(d.uploaded_at).toLocaleDateString()}</td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <div className="flex justify-end space-x-2">
+                                <button 
+                                    onClick={() => onToggleDoc(d.id)}
+                                    title={d.is_active ? "Deactivate Document" : "Activate Document"}
+                                    className={`p-1.5 rounded-lg transition ${d.is_active ? 'text-amber-600 hover:bg-amber-50' : 'text-indigo-600 hover:bg-indigo-50'}`}
+                                >
+                                    {d.is_active ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+                                </button>
+                                <button 
+                                    onClick={() => onDeleteDoc(d.id)}
+                                    title="Delete Document"
+                                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
+                         </td>
                       </tr>
                     ))}
                   </tbody>

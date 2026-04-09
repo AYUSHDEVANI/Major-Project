@@ -205,5 +205,48 @@ export const api = {
     getSuperAdminDocuments: async () => {
         const response = await apiClient.get('/superadmin/documents');
         return response.data;
+    },
+    toggleSuperAdminUser: async (userId: number) => {
+        const response = await apiClient.patch(`/superadmin/users/${userId}/toggle`);
+        return response.data;
+    },
+    deleteSuperAdminUser: async (userId: number) => {
+        const response = await apiClient.delete(`/superadmin/users/${userId}`);
+        return response.data;
+    },
+    toggleSuperAdminDocument: async (docId: number) => {
+        const response = await apiClient.patch(`/superadmin/documents/${docId}/toggle`);
+        return response.data;
+    },
+    deleteSuperAdminDocument: async (docId: number) => {
+        const response = await apiClient.delete(`/superadmin/documents/${docId}`);
+        return response.data;
+    },
+    toggleSuperAdminCompany: async (companyId: number) => {
+        const response = await apiClient.patch(`/superadmin/companies/${companyId}/toggle`);
+        return response.data;
+    },
+
+    // Support Chat
+    getChatSessions: async () => {
+        const response = await apiClient.get('/chat/sessions');
+        return response.data;
+    },
+
+    getChatHistory: async (sessionId: number) => {
+        const response = await apiClient.get(`/chat/sessions/${sessionId}`);
+        return response.data;
+    },
+
+    getChatStream: (message: string, historyId?: number, sessionId?: number) => {
+        const token = localStorage.getItem('access_token');
+        const url = `${apiClient.defaults.baseURL}/chat/stream?message=${encodeURIComponent(message)}${historyId ? `&history_id=${historyId}` : ''}${sessionId ? `&session_id=${sessionId}` : ''}`;
+        
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
     }
 };

@@ -1,8 +1,9 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.models.history import Base
-# Import User models so their tables are registered with Base.metadata
+# Import models so their tables are registered with Base.metadata
 import app.models.user  # noqa: F401
+import app.models.chat  # noqa: F401
 
 # Local SQLite DB for simplicity
 DATABASE_URL = "sqlite:///./maintenance.db"

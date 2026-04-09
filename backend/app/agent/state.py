@@ -8,6 +8,7 @@ class AgentState(TypedDict):
     analysis_result: Dict[str, Any]
     safety_warnings: List[str]
     roi_data: Dict[str, float]
+    history_id: Optional[int]
     erp_result: Dict[str, Any]
 
 

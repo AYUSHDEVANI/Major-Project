@@ -7,12 +7,14 @@ interface AppState {
     currentStep: string | null;
     error: string | null;
     analysisResult: AgentState | null;
-    history: any[]; // Using any for now, or define a RepairLog type
+    history: any[];
+    selectedHistoryItem: any | null; 
     
     // Actions
     uploadImage: (file: File, notes?: string) => Promise<void>;
     uploadManual: (file: File) => Promise<void>;
     fetchHistory: () => Promise<void>;
+    setSelectedHistoryItem: (item: any | null) => void;
     resetError: () => void;
 }
 
@@ -21,9 +23,10 @@ export const useAppStore = create<AppState>((set) => ({
     currentStep: null,
     error: null,
     analysisResult: null,
+    selectedHistoryItem: null,
 
     uploadImage: async (file, notes) => {
-        set({ isLoading: true, error: null, currentStep: 'starting' });
+        set({ isLoading: true, error: null, currentStep: 'starting', analysisResult: null });
         try {
             const result = await api.analyzeImage(file, notes, (step) => {
                 set({ currentStep: step });
@@ -68,6 +71,8 @@ export const useAppStore = create<AppState>((set) => ({
             });
         }
     },
+
+    setSelectedHistoryItem: (item) => set({ selectedHistoryItem: item }),
 
     resetError: () => set({ error: null })
 }));
