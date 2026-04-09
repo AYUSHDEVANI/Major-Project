@@ -5,6 +5,7 @@ export interface AgentState {
     analysis_result: AnalysisResult;
     safety_warnings: string[];
     roi_data: RoiData;
+    erp_result?: ErpResult;
 }
 
 export interface RetrievedDoc {
@@ -28,3 +29,10 @@ export interface RoiData {
     ai_time_minutes: number;
     savings_usd: number;
 }
+
+export interface ErpResult {
+    ticket_id: string;
+    status: string;
+    system: string;
+}
+

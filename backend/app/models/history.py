@@ -1,14 +1,16 @@
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, JSON
-from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, JSON, ForeignKey
+from sqlalchemy.orm import DeclarativeBase
+from datetime import datetime, timezone
 
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 
 class RepairLog(Base):
     __tablename__ = "repair_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
     
     # Inputs
     image_filename = Column(String, index=True)
@@ -24,3 +26,4 @@ class RepairLog(Base):
     estimated_time_minutes = Column(Integer)
     traditional_time_minutes = Column(Float)
     savings_usd = Column(Float)
+

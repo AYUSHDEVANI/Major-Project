@@ -19,8 +19,17 @@ class TicketResponse(BaseModel):
     erp_system: str
     message: str
 
+from app.core.auth import RoleChecker
+from app.models.user import User
+from fastapi import Depends
+
+engineer_role_checker = RoleChecker(["engineer"])
+
 @router.post("/erp/ticket", response_model=TicketResponse)
-def create_maintenance_ticket(request: TicketRequest):
+def create_maintenance_ticket(
+    request: TicketRequest,
+    current_user: User = Depends(engineer_role_checker)
+):
     """
     Mock endpoint that simulates creating a ticket in SAP/Oracle.
     """

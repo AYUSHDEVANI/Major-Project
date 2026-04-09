@@ -11,6 +11,12 @@ This project is a React + FastAPI system for diagnosing machine faults using AI.
 
 ## Setup Instructions
 
+### 🔐 Security Setup
+1. Copy `.env.example` to `.env`
+2. Replace placeholder keys with your actual API keys
+3. NEVER commit `.env` to version control
+4. Rotate keys immediately if accidentally exposed
+
 ### Backend
 1. Navigate to `backend/`.
 2. Install dependencies:

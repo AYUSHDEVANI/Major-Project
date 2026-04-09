@@ -2,6 +2,10 @@ import asyncio
 import base64
 import json
 import os
+import re
+import random
+from typing import List, Dict, Any
+from pydantic import BaseModel, Field
 from app.agent.state import AgentState
 from app.rag.retrieval import search_similar
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -9,6 +13,8 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.config import settings
+from app.core.sql_db import SessionLocal
+from app.models.history import RepairLog
 
 # --- LLM INITIALIZATION ---
 # Using Gemini 1.5 Flash for multimodal capabilities
@@ -25,6 +31,13 @@ def encode_image(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
+class RepairGuideOutput(BaseModel):
+    machine_part: str = Field(description="Name of the machine part identified")
+    failure_type: str = Field(description="Type of failure identified")
+    repair_steps: List[str] = Field(description="Step-by-step repair guide")
+    tools_required: List[str] = Field(description="List of tools required for repair")
+    estimated_time_minutes: int = Field(description="Estimated repair time in minutes")
+
 async def generate_repair_guide(image_path: str, context: list) -> dict:
     # 1. Prepare Context String
     context_text = "\n".join([f"- {doc['text']} (Source: {doc['source']})" for doc in context])
@@ -34,8 +47,8 @@ async def generate_repair_guide(image_path: str, context: list) -> dict:
     
     print(f"--- CALLING LLM (Groq={is_groq}) ---")
 
-    # 3. Construct Prompt
-    prompt = f"""
+    # 3. Construct Prompts
+    prompt_text = f"""
     You are an expert Industrial Maintenance Assistant. 
     Analyze the retrieved manual context below to determine the repair steps.
     
@@ -47,102 +60,86 @@ async def generate_repair_guide(image_path: str, context: list) -> dict:
     2. Provide a step-by-step repair guide.
     3. List required tools.
     4. Estimate repair time.
-
-    Output format (JSON only):
-    {{
-        "machine_part": "Name of Part",
-        "failure_type": "Type of Failure",
-        "repair_steps": ["Step 1", "Step 2", ...],
-        "tools_required": ["Tool 1", "Tool 2", ...],
-        "estimated_time_minutes": 60
-    }}
     """
     
-    content_blocks = [{"type": "text", "text": prompt}]
+    # 4. Try LLM Call with Resiliency (Retry + Fallback)
+    import logging
+    from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
     
-    # Only add image if NOT Groq (since Llama 3.3 is text-only here)
-    if not is_groq:
-         base64_image = encode_image(image_path)
-         content_blocks.append({
+    # Helper to call LLM with retry
+    @retry(
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(3),
+        reraise=True
+    )
+    async def _call_llm_with_retry(model, messages, model_name="LLM"):
+        logging.info(f"Attempting structured invocation with {model_name}...")
+        structured_llm = model.with_structured_output(RepairGuideOutput)
+        return await structured_llm.ainvoke(messages)
+
+    response_model = None
+
+    # First try Primary LLM (Gemini with Vision)
+    primary_blocks = [{"type": "text", "text": prompt_text}]
+    if image_path:
+        base64_image = encode_image(image_path)
+        primary_blocks.append({
             "type": "image_url",
             "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-         })
-    else:
-        # For Groq text-only, we append a note about the image
-        prompt += "\n\nNote: Visual analysis is disabled (Text-Only Mode). Rely on the Manual Context."
-        content_blocks = [{"type": "text", "text": prompt}]
-
-    message = HumanMessage(content=content_blocks)
+        })
     
-    # 4. Invoke LLM
     try:
-        response = await llm.ainvoke([message])
-        content = response.content
-        
-        # Debug Logging
-        print(f"DEBUG: RAW LLM OUTPUT:\n{content}\n----------------")
-
-        # Robust JSON Cleanup
-        content = content.strip()
-        analysis = {}
-        try:
-            # Text Cleaning: Remove markdown code blocks
-            import re
-            text = content.replace("```json", "").replace("```", "").strip()
-            
-            # 2. Aggressive JSON Cleanup
-            text = re.sub(r',\s*}', '}', text)
-            text = re.sub(r',\s*]', ']', text)
-            
-            analysis = json.loads(text)
-        except json.JSONDecodeError as e:
-            print(f"Error generating repair guide: {e}")
-            # Fallback for the user's specific case or standard failure
-            analysis = {
-                 "machine_part": "Partial Analysis Failed",
-                 "failure_type": "AI Parsing Error",
-                 "repair_steps": [
-                     "The AI generated a response but it contained syntax errors.",
-                     "This often happens when the image is unclear or not related to the manual.",
-                     f"Raw Error: {str(e)[:50]}..."
-                 ],
-                 "tools_required": ["Manual Inspection"],
-                 "estimated_time_minutes": 60
-            }
-        except Exception as e:
-             print(f"General Error generating repair guide: {e}")
-             analysis = {
-                 "machine_part": "Error",
-                 "failure_type": "System Error",
-                 "repair_steps": ["Ensure backend is running correctly."],
-                 "tools_required": [],
-                 "estimated_time_minutes": 0
-             }
-        return analysis
-        
+        response_model = await _call_llm_with_retry(llm, [HumanMessage(content=primary_blocks)], "Gemini Primary")
     except Exception as e:
-        print(f"Error generating repair guide: {e}")
-        # Fallback to safe default just in case of parsing error
+        print(f"⚠️ Primary LLM (Gemini) failed after retries: {e}. Falling back to Groq...")
+        
+        # Fallback to Text-Only Groq model
+        fallback_llm = ChatGroq(
+            model="llama-3.3-70b-versatile",
+            api_key=settings.GROQ_API_KEY,
+            temperature=0,
+            max_retries=2
+        )
+        
+        fallback_prompt = prompt_text + "\n\nNote: Visual analysis is disabled (Text-Only Mode). Rely on the Manual Context."
+        fallback_blocks = [{"type": "text", "text": fallback_prompt}]
+        
+        try:
+            response_model = await _call_llm_with_retry(fallback_llm, [HumanMessage(content=fallback_blocks)], "Groq Fallback")
+        except Exception as e2:
+            print(f"❌ Fallback LLM (Groq) also failed: {e2}")
+
+    # 5. Handle Results or Return Error Defaults
+    if response_model:
+        return response_model.model_dump()
+    else:
+        # Failsafe default dictionary if both models fail
         return {
             "machine_part": "Unknown Part (AI Error)",
-            "failure_type": "Analysis Failed",
-            "repair_steps": ["Consult manual manually.", f"Error: {str(e)}", "Check backend console for raw output."],
-            "tools_required": [],
-            "estimated_time_minutes": 0
+            "failure_type": "Analysis Failed due to API limits",
+            "repair_steps": [
+                "1. Manual intervention required.", 
+                "2. System APIs are currently overloaded.", 
+                "3. Please check physical diagrams."
+            ],
+            "tools_required": ["Safety gear", "Standard toolkit"],
+            "estimated_time_minutes": 60
         }
 
 async def retrieve_node(state: AgentState):
-    print("--- RETRIEVING DOCUMENTS (SMART HYBRID) ---")
+    print("--- RETRIEVING DOCUMENTS (SMART HYBRID + RRF) ---")
     query_text = state.get("query_text", "")
     image_path = state.get("image_path")
+    company_id = state.get("company_id", 0)
     
     search_query = query_text
     
-    # 1. Vision-Based Captioning (If image exists but no text)
-    if image_path and not search_query:
+    # 1. Vision-Based Captioning: Generate a text query from the image
+    #    This gives us a text vector even when the user only uploads an image,
+    #    enabling RRF fusion (image vector + generated text vector).
+    if image_path:
         print("--- GENERATING SEARCH QUERY FROM IMAGE ---")
         try:
-            # Ask Gemini to describe the part for searching
             base64_image = encode_image(image_path)
             prompt = "Identify this machine part and provide 3-5 keywords to search for it in a technical manual. Return only the keywords."
             
@@ -152,37 +149,33 @@ async def retrieve_node(state: AgentState):
             ])
             
             response = await llm.ainvoke([message])
-            search_query = response.content.strip()
-            print(f"Generated Query: {search_query}")
+            generated_query = response.content.strip()
+            print(f"Generated Query: {generated_query}")
+            
+            # Combine user text with vision-generated keywords for richer search
+            if search_query:
+                search_query = f"{search_query} {generated_query}"
+            else:
+                search_query = generated_query
         except Exception as e:
-            print(f"Error generating query: {e}")
-            search_query = "industrial machine repair manual"
+            print(f"Error generating query from image: {e}")
+            if not search_query:
+                search_query = "industrial machine repair manual"
 
-    # 2. Perform Search (Visual + Text)
-    # If we have an image, we use it for visual similarity AND use the generated text for semantic match
-    # For now, we pass the image_path to search_similar to use visual embedding
-    
-    # Fallback
+    # 2. Fallback text query
     if not search_query:
         search_query = "machine maintenance"
 
-    # We use the text query for now, but we COULD also pass query_image_path 
-    # if our Qdrant setup supports pure vector search well.
-    # Let's use the Image Path to get a visual vector!
-    
+    # 3. Hybrid Search: pass BOTH image path AND text query
+    #    search_similar will use RRF fusion when both are available
     docs = await search_similar(
-        query_text=search_query if not image_path else None, # Prefer image vector if available, or hybrid?
-        # Actually, let's try to search by Image Vector primarily if image is there
-        # But commonly manuals are text. Matching Image-Vector to Text-Vector (CLIP) is powerful.
+        query_text=search_query,
         query_image_path=image_path, 
-        top_k=3
+        top_k=5,
+        company_id=company_id,
     )
     
-    # If visual search yields nothing (threshold?), fallback to text
-    if not docs and search_query:
-        print("Visual search low confidence/empty, trying text search...")
-        docs = await search_similar(query_text=search_query, top_k=3)
-        
+    print(f"Retrieved {len(docs)} documents via {'RRF hybrid' if image_path else 'text'} search")
     return {"retrieved_docs": docs}
 
 async def generate_node(state: AgentState):
@@ -221,16 +214,10 @@ async def roi_node(state: AgentState):
     
     # Robust integer parsing
     try:
-        # Handle cases where LLM returns "60 mins" or string "60"
         raw_time = str(analysis.get("estimated_time_minutes", 60))
-        import re
-        # Extract first number found
         time_matches = re.findall(r'\d+', raw_time)
-        if time_matches:
-            time_minutes = int(time_matches[0])
-        else:
-            time_minutes = 60
-    except:
+        time_minutes = int(time_matches[0]) if time_matches else 60
+    except (ValueError, TypeError, AttributeError):
         time_minutes = 60
     
     downtime_cost_per_hour = 5000 
@@ -245,12 +232,9 @@ async def roi_node(state: AgentState):
         "savings_usd": round(money_saved, 2)
     }
     
-    # --- SAVE TO DB ---
+    # --- SAVE TO DB (with guaranteed session cleanup) ---
+    db = None
     try:
-        from app.core.sql_db import SessionLocal
-        from app.models.history import RepairLog
-        import json
-        
         db = SessionLocal()
         
         log_entry = RepairLog(
@@ -258,22 +242,26 @@ async def roi_node(state: AgentState):
             query_text=query_text,
             machine_part=analysis.get("machine_part"),
             failure_type=analysis.get("failure_type"),
-            repair_steps=analysis.get("repair_steps", []), # SQLAlchemy handles JSON
+            repair_steps=analysis.get("repair_steps", []),
             tools_required=analysis.get("tools_required", []),
             estimated_time_minutes=time_minutes,
             traditional_time_minutes=traditional_time_minutes,
-            savings_usd=round(money_saved, 2)
+            savings_usd=round(money_saved, 2),
+            company_id=state.get("company_id"),
         )
         
         db.add(log_entry)
         db.commit()
         db.refresh(log_entry)
         print(f"Saved Repair Log ID: {log_entry.id}")
-        db.close()
         
     except Exception as e:
+        if db:
+            db.rollback()
         print(f"Error saving to DB: {e}")
-    
+    finally:
+        if db:
+            db.close()
     
     return {"roi_data": roi_data}
 
@@ -294,7 +282,6 @@ async def erp_node(state: AgentState):
     }
     
     # Mocking the response directly to avoid self-recursion network issues in dev
-    import random
     ticket_id = f"INC-{random.randint(10000, 99999)}"
     
     erp_response = {

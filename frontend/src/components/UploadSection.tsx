@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store/appStore';
-import { UploadCloud, FileText } from 'lucide-react';
+import { UploadCloud } from 'lucide-react';
 
 const UploadSection: React.FC = () => {
     const { uploadImage, isLoading } = useAppStore();

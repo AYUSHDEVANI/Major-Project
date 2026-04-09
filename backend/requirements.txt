@@ -9,17 +9,21 @@ qdrant-client
 open_clip_torch
 torch
 torchvision
-transformers
-sentence-transformers
+sqlalchemy
+pillow
+pydantic-settings
 pymupdf
-llama-index-core
-llama-index-embeddings-huggingface
-llama-index-readers-file
-unstructured>=0.11.0  # Ensuring decent recent version
-numba>=0.57.0         # Required for Python 3.11
-llvmlite>=0.40.0      # Compatible with Python 3.11
 python-multipart
 python-dotenv
 httpx
 langchain-google-genai>=1.0.3
+langchain-groq
 google-generativeai>=0.5.2
+langchain-text-splitters
+tenacity
+cachetools
+passlib[bcrypt]
+python-jose[cryptography]
+cryptography
+bcrypt==4.0.1
+email-validator>=2.0.0

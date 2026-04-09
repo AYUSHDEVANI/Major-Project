@@ -3,7 +3,7 @@ import { useAppStore } from '../store/appStore';
 import { AlertTriangle, Wrench, Clock, DollarSign, CheckCircle } from 'lucide-react';
 
 const AnalysisResult: React.FC = () => {
-    const { analysisResult, isLoading, error } = useAppStore();
+    const { analysisResult, isLoading, error, currentStep } = useAppStore();
 
     // Checklist State
     const [checkedSteps, setCheckedSteps] = React.useState<boolean[]>([]);
@@ -14,7 +14,27 @@ const AnalysisResult: React.FC = () => {
         }
     }, [analysisResult]);
 
-    if (isLoading) return <div className="text-center p-8 animate-pulse text-gray-500">Analyzing machine data... This may take up to 30 seconds.</div>;
+    const getStepMessage = (step: string | null) => {
+        switch (step) {
+            case 'starting': return 'Initializing LangGraph AI Engine...';
+            case 'retrieve': return 'Retrieving related technical manuals from Qdrant...';
+            case 'generate': return 'Generating structured repair instructions with Gemini...';
+            case 'safety': return 'Injecting industrial safety protocols and hazards...';
+            case 'roi': return 'Calculating AI Time-Savings & Return on Investment...';
+            case 'erp': return 'Simulating ticket creation in SAP ERP System...';
+            default: return 'Processing machine data... Please wait.';
+        }
+    };
+
+    if (isLoading) {
+        return (
+            <div className="flex flex-col items-center justify-center p-12 mt-6 bg-white rounded-xl shadow-sm border border-blue-100">
+                <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-6"></div>
+                <h3 className="text-xl font-bold text-gray-800 mb-2">Analyzing Equipment</h3>
+                <p className="text-blue-600 font-medium animate-pulse text-center">{getStepMessage(currentStep)}</p>
+            </div>
+        );
+    }
     if (error) return <div className="text-center p-8 text-red-500 bg-red-50 rounded-lg">{error}</div>;
     if (!analysisResult) return <div className="text-center p-8 text-gray-400">Upload a machine image to begin analysis.</div>;
 
