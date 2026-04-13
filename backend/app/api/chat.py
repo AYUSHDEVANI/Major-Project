@@ -96,10 +96,17 @@ async def chat_support(
     db.add(user_chat_msg)
     db.commit()
 
+    # --- EAGERLY CAPTURE USER DATA (fixes DetachedInstanceError in deployment) ---
+    curr_user_id = current_user.id
+    curr_company_id = current_user.company_id
+
     async def event_generator():
+        # Create a fresh DB session for the long-running generator
+        from app.core.sql_db import SessionLocal
+        internal_db = SessionLocal()
+        
         try:
             # P0: Priming the connection (Bypass MIME sniffing and Cloudflare buffering)
-            # Yield a 1KB padding or just a clear comment to signal stream start
             yield ": ping\n\n" 
             
             # Send session ID so frontend can track it
@@ -110,14 +117,14 @@ async def chat_support(
             docs = await search_similar(
                 query_text=message, 
                 top_k=4, 
-                company_id=current_user.company_id
+                company_id=curr_company_id
             )
             context_text = "\n".join([f"- {d['text']} (Source: {d['source']})" for d in docs])
             
             # 2. Retrieve Specific History Context
             history_context = ""
             if history_id:
-                log = db.query(RepairLog).filter(RepairLog.id == history_id, RepairLog.company_id == current_user.company_id).first()
+                log = internal_db.query(RepairLog).filter(RepairLog.id == history_id, RepairLog.company_id == curr_company_id).first()
                 if log:
                     history_context = f"\nUser is currently referencing this repair history:\n- Part: {log.machine_part}\n- Failure: {log.failure_type}\n- Steps taken: {', '.join(log.repair_steps)}"
 
@@ -192,8 +199,8 @@ async def chat_support(
                         role="assistant",
                         content=assistant_response
                     )
-                    db.add(ai_chat_msg)
-                    db.commit()
+                    internal_db.add(ai_chat_msg)
+                    internal_db.commit()
                 except Exception as db_err:
                     print(f"Error saving AI message: {db_err}")
 
@@ -201,6 +208,8 @@ async def chat_support(
             
         except Exception as e:
             yield f"data: {json.dumps({'error': f'Support Chat Error: {str(e)}'})}\n\n"
+        finally:
+            internal_db.close()
 
     return StreamingResponse(
         event_generator(), 
