@@ -74,13 +74,13 @@ const AnalysisResult: React.FC = () => {
 
             {/* Diagnosis */}
             <div className="bg-white p-6 rounded-xl shadow-md">
-                <h2 className="text-2xl font-bold text-gray-800 mb-4">{analysis_result.machine_part}</h2>
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">{String(analysis_result.machine_part || 'Unknown Part')}</h2>
                 <div className="flex items-center text-gray-600 mb-6">
                     <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium mr-4">
-                        {analysis_result.failure_type}
+                        {String(analysis_result.failure_type || 'Unknown Failure')}
                     </span>
                     <span className="flex items-center mr-4">
-                        <Clock className="w-4 h-4 mr-1" /> {analysis_result.estimated_time_minutes} mins
+                        <Clock className="w-4 h-4 mr-1" /> {analysis_result.estimated_time_minutes || 0} mins
                     </span>
                 </div>
 
@@ -90,9 +90,9 @@ const AnalysisResult: React.FC = () => {
                             <Wrench className="mr-2 w-5 h-5" /> Required Tools
                         </h3>
                         <div className="flex flex-wrap gap-2">
-                            {analysis_result.tools_required.map((tool, i) => (
+                            {(Array.isArray(analysis_result.tools_required) ? analysis_result.tools_required : []).map((tool, i) => (
                                 <span key={i} className="bg-gray-100 text-gray-700 px-3 py-1 rounded-md text-sm border">
-                                    {tool}
+                                    {String(tool)}
                                 </span>
                             ))}
                         </div>
@@ -116,7 +116,7 @@ const AnalysisResult: React.FC = () => {
                         </div>
 
                         <ul className="space-y-3">
-                             {analysis_result.repair_steps.map((step, i) => (
+                             {(Array.isArray(analysis_result.repair_steps) ? analysis_result.repair_steps : []).map((step, i) => (
                                 <li 
                                     key={i} 
                                     className={`flex items-start p-3 rounded-lg border transition-all cursor-pointer ${
@@ -132,7 +132,7 @@ const AnalysisResult: React.FC = () => {
                                         {checkedSteps[i] && <CheckCircle className="w-3.5 h-3.5 text-white" />}
                                     </div>
                                     <span className={`text-sm ${checkedSteps[i] ? 'text-gray-500 line-through' : 'text-gray-700'}`}>
-                                        {step}
+                                        {String(step)}
                                     </span>
                                 </li>
                             ))}

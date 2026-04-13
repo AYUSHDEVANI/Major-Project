@@ -306,17 +306,42 @@ async def generate_repair_guide(image_path: str, context: list) -> dict:
     # 5. Handle Results or Return Error Defaults (with STRICT Schema Normalization)
     def normalize_result(data: dict) -> dict:
         """Forces the AI dict into the exact schema expected by the Frontend."""
+        
+        def to_str_list(val: Any) -> List[str]:
+            """Helper to ensure we have a list of strings."""
+            if not val:
+                return []
+            if isinstance(val, str):
+                # If they accidentally sent a comma-separated string instead of list
+                if ',' in val and '[' not in val:
+                    return [s.strip() for s in val.split(',')]
+                return [val]
+            if not hasattr(val, '__iter__'):
+                return [str(val)]
+            
+            # Extract strings from list, ensuring we don't crash on objects
+            return [str(item) for item in val if item is not None]
+
         # Map common AI variations to strictly underscored keys
         remapped = {
-            "machine_part": str(data.get("machine_part") or data.get("machine-part") or data.get("machinePart") or "Unknown Part"),
-            "failure_type": str(data.get("failure_type") or data.get("failure-type") or data.get("failureType") or "Unknown Failure"),
-            "repair_steps": list(data.get("repair_steps") or data.get("repair-steps") or data.get("repairSteps") or ["Check machine manual."]),
-            "tools_required": list(data.get("tools_required") or data.get("tools-required") or data.get("toolsRequired") or ["Standard tools"]),
+            "machine_part": str(data.get("machine_part") or data.get("machine-part") or data.get("machinePart") or data.get("part") or "Unknown Part"),
+            "failure_type": str(data.get("failure_type") or data.get("failure-type") or data.get("failureType") or data.get("failure") or "Unknown Failure"),
+            "repair_steps": to_str_list(data.get("repair_steps") or data.get("repair-steps") or data.get("repairSteps") or data.get("steps")),
+            "tools_required": to_str_list(data.get("tools_required") or data.get("tools-required") or data.get("toolsRequired") or data.get("tools")),
         }
+        
+        # Ensure lists are NOT empty (Failsafe)
+        if not remapped["repair_steps"]:
+            remapped["repair_steps"] = ["Check physical manual for next steps."]
+        if not remapped["tools_required"]:
+            remapped["tools_required"] = ["Standard technician toolkit"]
+
         # Clean number conversion for time
         try:
-            raw_time = data.get("estimated_time_minutes") or data.get("time") or 60
-            remapped["estimated_time_minutes"] = int(re.search(r'\d+', str(raw_time)).group())
+            raw_time = data.get("estimated_time_minutes") or data.get("time") or data.get("duration") or 60
+            # Extract first number found in string
+            time_match = re.search(r'\d+', str(raw_time))
+            remapped["estimated_time_minutes"] = int(time_match.group()) if time_match else 60
         except:
             remapped["estimated_time_minutes"] = 60
             
