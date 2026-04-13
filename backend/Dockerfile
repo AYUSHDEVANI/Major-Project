@@ -1,21 +1,39 @@
 FROM python:3.11-slim
 
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_ROOT_USER_ACTION=ignore \
+    OMP_NUM_THREADS=2 \
+    MKL_NUM_THREADS=2 \
+    PORT=7860
+
 WORKDIR /app
 
-# Install dependencies needed for compiling certain python packages
-RUN apt-get update && apt-get install -y gcc g++ libffi-dev \
+# Install system deps (updated package names for Debian Trixie)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy requirements first (better Docker caching)
 COPY requirements.txt .
 
-# Use no-cache to keep image size small
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python deps (CPU-only torch to save space/time)
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
 
-# Copy source code
+# Copy application code
 COPY . .
 
-# Expose FastAPI port
-EXPOSE 8000
+# Create non-root user for security (optional but recommended)
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
 
-# Run Uvicorn specifically importing from app module 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run with single worker + CPU-optimized settings
+CMD ["sh", "-c", "python -c \"import torch; torch.set_num_threads(2)\" && \
+     uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1"]

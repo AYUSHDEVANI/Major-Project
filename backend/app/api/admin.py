@@ -153,3 +153,21 @@ def toggle_document(
     doc.is_active = not doc.is_active
     db.commit()
     return {"message": f"Document {'activated' if doc.is_active else 'deactivated'}"}
+
+
+@router.delete("/documents/{doc_id}", summary="Delete document from admin's company")
+def delete_document(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(admin_only),
+):
+    doc = db.query(Document).filter(
+        Document.id == doc_id,
+        Document.company_id == current_user.company_id
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found in your company")
+    
+    db.delete(doc)
+    db.commit()
+    return {"message": "Document deleted"}

@@ -1,4 +1,4 @@
-import fitz  # PyMuPDF
+from pypdf import PdfReader
 import os
 import re
 import uuid
@@ -88,20 +88,24 @@ def ensure_collection_exists():
 # --- PDF Processing ---
 
 async def process_pdf(file_path: str) -> List[Dict]:
-    """Extract text from PDF with page-level metadata."""
-    doc = fitz.open(file_path)
+    """Extract text from PDF with page-level metadata using pypdf."""
     text_content = []
     
-    for page_num, page in enumerate(doc):
-        text = page.get_text()
-        if text.strip():
-            text_content.append({
-                "text": text,
-                "page": page_num + 1,
-                "source": os.path.basename(file_path)
-            })
+    with open(file_path, "rb") as f:
+        reader = PdfReader(f)
+        
+        for page_num, page in enumerate(reader.pages):
+            # pypdf uses extract_text() instead of get_text()
+            text = page.extract_text()
+            
+            # Skip empty pages or pages with only whitespace
+            if text and text.strip():
+                text_content.append({
+                    "text": text,
+                    "page": page_num + 1,  # 1-indexed pages
+                    "source": os.path.basename(file_path)
+                })
     
-    doc.close()
     return text_content
 
 

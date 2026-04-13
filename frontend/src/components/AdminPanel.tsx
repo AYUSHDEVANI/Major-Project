@@ -4,7 +4,7 @@ import { useAppStore } from '../store/appStore';
 import { Users, FileText, Plus, Trash2, ToggleLeft, ToggleRight, AlertCircle, Upload, Shield } from 'lucide-react';
 
 interface UserItem { email: string; role: string; is_active: boolean; }
-interface DocItem { filename: string; source: string; page_count: number; chunk_count: number; is_active: boolean; uploaded_at: string; }
+interface DocItem { id: number; filename: string; source: string; page_count: number; chunk_count: number; is_active: boolean; uploaded_at: string; }
 
 export default function AdminPanel() {
   const [tab, setTab] = useState<'users' | 'documents'>('users');
@@ -62,8 +62,19 @@ export default function AdminPanel() {
     try { await api.deleteUser(email); flashSuccess('User deleted.'); await fetchUsers(); } catch (e: any) { setError(e.response?.data?.detail || 'Delete failed'); }
   };
 
-  const handleToggleDoc = async (filename: string) => {
-    try { await api.toggleDocument(filename); await fetchDocs(); } catch (e: any) { setError(e.response?.data?.detail || 'Toggle failed'); }
+  const handleToggleDoc = async (docId: number) => {
+    try { await api.toggleDocument(docId); await fetchDocs(); } catch (e: any) { setError(e.response?.data?.detail || 'Toggle failed'); }
+  };
+
+  const handleDeleteDoc = async (docId: number) => {
+    if (!confirm('Are you sure you want to delete this document permanently?')) return;
+    try {
+        await api.deleteDocument(docId);
+        flashSuccess('Document deleted successfully.');
+        await fetchDocs();
+    } catch (e: any) {
+        setError(e.response?.data?.detail || 'Delete failed');
+    }
   };
 
   const roleBadge = (role: string) => {
@@ -225,9 +236,14 @@ export default function AdminPanel() {
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">{new Date(d.uploaded_at).toLocaleDateString()}</td>
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => handleToggleDoc(d.filename)} className="text-gray-400 hover:text-blue-600 transition" title={d.is_active ? 'Deactivate' : 'Activate'}>
-                        {d.is_active ? <ToggleRight className="w-5 h-5 inline text-green-500" /> : <ToggleLeft className="w-5 h-5 inline" />}
-                      </button>
+                      <div className="flex justify-end space-x-2">
+                        <button onClick={() => handleToggleDoc(d.id)} className="text-gray-400 hover:text-blue-600 transition" title={d.is_active ? 'Deactivate' : 'Activate'}>
+                            {d.is_active ? <ToggleRight className="w-5 h-5 inline text-green-500" /> : <ToggleLeft className="w-5 h-5 inline" />}
+                        </button>
+                        <button onClick={() => handleDeleteDoc(d.id)} className="text-gray-400 hover:text-red-600 transition" title="Delete Permanent">
+                            <Trash2 className="w-4 h-4 inline" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

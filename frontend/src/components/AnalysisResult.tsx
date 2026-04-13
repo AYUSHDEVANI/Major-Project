@@ -38,7 +38,14 @@ const AnalysisResult: React.FC = () => {
     if (error) return <div className="text-center p-8 text-red-500 bg-red-50 rounded-lg">{error}</div>;
     if (!analysisResult) return <div className="text-center p-8 text-gray-400">Upload a machine image to begin analysis.</div>;
 
-    const { analysis_result, safety_warnings, roi_data } = analysisResult;
+    const { analysis_result, safety_warnings = [], roi_data = {} as any } = analysisResult;
+    
+    // Safety check: if analysis_result is missing, don't crash the whole UI
+    if (!analysis_result || !analysis_result.machine_part) {
+        return <div className="text-center p-8 text-yellow-600 bg-yellow-50 rounded-lg border border-yellow-200">
+            ⚠️ Analysis found, but result format is incomplete. Please retry or check logs.
+        </div>;
+    }
 
     const toggleStep = (index: number) => {
         const newChecked = [...checkedSteps];
@@ -142,15 +149,15 @@ const AnalysisResult: React.FC = () => {
                 <div className="grid grid-cols-3 gap-4 text-center">
                     <div className="bg-white p-3 rounded-lg shadow-sm">
                         <div className="text-sm text-gray-500">Traditional Time</div>
-                        <div className="font-bold text-gray-800">{roi_data.traditional_time_minutes} mins</div>
+                        <div className="font-bold text-gray-800">{roi_data?.traditional_time_minutes || 0} mins</div>
                     </div>
                     <div className="bg-white p-3 rounded-lg shadow-sm">
                         <div className="text-sm text-gray-500">AI-Assisted Time</div>
-                        <div className="font-bold text-blue-600">{roi_data.ai_time_minutes} mins</div>
+                        <div className="font-bold text-blue-600">{roi_data?.ai_time_minutes || 0} mins</div>
                     </div>
                      <div className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-green-500">
                         <div className="text-sm text-gray-500">Est. Savings</div>
-                        <div className="font-bold text-green-600 text-xl">${roi_data.savings_usd}</div>
+                        <div className="font-bold text-green-600 text-xl">${roi_data?.savings_usd || 0}</div>
                     </div>
                 </div>
             </div>

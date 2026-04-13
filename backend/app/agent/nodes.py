@@ -11,19 +11,60 @@ from app.rag.retrieval import search_similar
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+import httpx
 
 from app.core.config import settings
 from app.core.sql_db import SessionLocal
 from app.models.history import RepairLog
 
-# --- LLM INITIALIZATION ---
-# Using Gemini 1.5 Flash for multimodal capabilities
+# --- LLM INITIALIZATION & QUOTA GUARD ---
+print("🚀 PATCH APPLIED: Ultra-Fast Direct HTTP Fallback (v3.0)", flush=True)
+
+# Global flag to skip Gemini if it's already exhausted in this run
+_GEMINI_EXHAUSTED = False
+
+if not settings.GOOGLE_API_KEY:
+    print("⚠️ WARNING: GOOGLE_API_KEY is missing! Gemini will fail.", flush=True)
+else:
+    print(f"✅ Gemini Key found (Starts with: {settings.GOOGLE_API_KEY[:5]}...)", flush=True)
+
+if not settings.GROQ_API_KEY:
+    print("⚠️ WARNING: GROQ_API_KEY is missing! Stable fallback will fail.", flush=True)
+else:
+    print(f"✅ Groq Key found (Starts with: {settings.GROQ_API_KEY[:5]}...)", flush=True)
+
+if not settings.OPENROUTER_API_KEY:
+    print("⚠️ WARNING: OPENROUTER_API_KEY is missing! Final fallback will fail.", flush=True)
+else:
+    print(f"✅ OpenRouter Key found (Starts with: {settings.OPENROUTER_API_KEY[:5]}...)", flush=True)
+
+# Using Gemini 1.5 Flash (1,500 requests/day, 15 RPM)
 llm = ChatGoogleGenerativeAI(
     model="models/gemini-2.5-flash", 
     google_api_key=settings.GOOGLE_API_KEY,
     temperature=0,
     max_output_tokens=8192,
-    timeout=None,
+    max_retries=0, # FAIL FAST: Crucial to move to OpenRouter immediately
+)
+
+# Text-Only Fallback (High Speed & Alternative Quota)
+# fallback_llm = ChatGroq(
+#     model="llama-3.2-11b-vision-instant",
+#     api_key=settings.GROQ_API_KEY,
+#     temperature=0,
+#     max_retries=2
+# )
+
+fallback_llm = ChatOpenAI(
+    model_name="google/gemma-3-12b-it:free", # Standardized to stable Gemma 3
+    openai_api_base="https://openrouter.ai/api/v1",
+    openai_api_key=settings.OPENROUTER_API_KEY,
+    default_headers={
+        "HTTP-Referer": "http://localhost:3000", 
+        "X-Title": "Repair Guide System"
+    },
+    max_retries=0
 )
 
 
@@ -37,6 +78,186 @@ class RepairGuideOutput(BaseModel):
     repair_steps: List[str] = Field(description="Step-by-step repair guide")
     tools_required: List[str] = Field(description="List of tools required for repair")
     estimated_time_minutes: int = Field(description="Estimated repair time in minutes")
+
+async def call_openrouter_json_direct(prompt: str) -> dict:
+    """Ultra-robust direct HTTP call to OpenRouter to bypass library parsing bugs."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                    "HTTP-Referer": "http://localhost:3000",
+                    "X-Title": "Industrial RAG",
+                },
+                json={
+                    "model": "google/gemma-4-31b-it:free",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "reasoning": {"enabled": True}
+                },
+                timeout=8.0
+            )
+            if response.status_code == 200:
+                content = response.json()['choices'][0]['message']['content']
+                return extract_json_from_text(content)
+            elif response.status_code == 429:
+                print(f"⚠️ Gemma 3 busy (429). Trying Llama 3.3 70B Fallback...")
+                # Secondary Fallback: Meta Llama 3.3 70B (Different Provider)
+                response = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                        "HTTP-Referer": "http://localhost:3000",
+                        "X-Title": "Industrial RAG",
+                    },
+                    json={
+                        "model": "meta-llama/llama-3.3-70b-instruct:free",
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                    timeout=30.0
+                )
+                if response.status_code == 200:
+                    content = response.json()['choices'][0]['message']['content']
+                    return extract_json_from_text(content)
+                elif response.status_code == 429:
+                    print(f"⚠️ Llama 3.3 busy. Trying 'openrouter/free' Catch-All...")
+                    # FOURTH FALLBACK: The generic free router (Catch-all for any available free model)
+                    response = await client.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                            "HTTP-Referer": "http://localhost:3000",
+                            "X-Title": "Industrial RAG",
+                        },
+                        json={
+                            "model": "openrouter/free", # Automatically routes to ANY available free model
+                            "messages": [{"role": "user", "content": prompt}],
+                        },
+                        timeout=30.0
+                    )
+                    if response.status_code == 200:
+                        content = response.json()['choices'][0]['message']['content']
+                        return extract_json_from_text(content)
+            
+            print(f"❌ All OpenRouter free models are currently busy (Status {response.status_code}). Response: {response.text[:100]}", flush=True)
+            return {}
+    except Exception as e:
+        print(f"❌ Direct OpenRouter JSON call failed (Connection Error): {e}", flush=True)
+        return {}
+
+async def call_gemini_direct(prompt: str, image_path: str = None) -> dict:
+    """Direct HTTP call to Google's Gemini API to bypass LangChain's stubborn retry loops."""
+    global _GEMINI_EXHAUSTED
+    
+    if _GEMINI_EXHAUSTED:
+        return {"error": "quota_exhausted"}
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={settings.GOOGLE_API_KEY}"
+    
+    parts = [{"text": prompt}]
+    if image_path:
+        with open(image_path, "rb") as f:
+            b64_img = base64.b64encode(f.read()).decode('utf-8')
+        parts.append({
+            "inline_data": {
+                "mime_type": "image/jpeg",
+                "data": b64_img
+            }
+        })
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json={"contents": [{"parts": parts}]},
+                timeout=15.0
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                text = data['candidates'][0]['content']['parts'][0]['text']
+                return {"text": text}
+            elif response.status_code == 429:
+                _GEMINI_EXHAUSTED = True
+                print("🚨 Gemini Quota Exhausted (Direct). Switching to fallback mode.")
+                return {"error": "quota_exhausted"}
+            else:
+                return {"error": f"status_{response.status_code}", "detail": response.text}
+    except Exception as e:
+        return {"error": "connection_error", "detail": str(e)}
+
+async def call_groq_direct(prompt: str) -> dict:
+    """Direct HTTP call to Groq (Llama 3.3 70B) for ultra-fast, high-quota fallback."""
+    if not settings.GROQ_API_KEY:
+        return {"error": "no_key"}
+    
+    # GROQ REQUIREMENT: If using json_object, the word 'JSON' MUST be in the prompt.
+    groq_prompt = prompt + "\n\nCRITICAL: Return the response as a VALID JSON object."
+    
+    # List of models to try in order
+    models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    
+    async with httpx.AsyncClient() as client:
+        for model in models:
+            try:
+                print(f"--- TRYING GROQ MODEL: {model} ---", flush=True)
+                response = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": groq_prompt}],
+                        "response_format": {"type": "json_object"}
+                    },
+                    timeout=15.0
+                )
+                if response.status_code == 200:
+                    content = response.json()['choices'][0]['message']['content']
+                    return extract_json_from_text(content)
+                else:
+                    print(f"⚠️ Groq {model} failed (Status {response.status_code}).", flush=True)
+            except Exception as e:
+                print(f"⚠️ Groq {model} error: {e}", flush=True)
+                
+    return {}
+
+def extract_json_from_text(text: str) -> dict:
+    """Ultra-robust JSON extractor that handles AI reasoning and markdown clutter."""
+    if not text:
+        return {}
+        
+    try:
+        # 1. Try finding json in markdown blocks (the cleanest way)
+        json_blocks = re.findall(r'```json\s*(.*?)\s*```', text, re.DOTALL)
+        for block in json_blocks:
+            try:
+                return json.loads(block)
+            except:
+                continue
+
+        # 2. Try the furthest apart { and } (for aggressive thinkers)
+        # We try to find the largest possible JSON object
+        json_match = re.search(r'(\{.*\})', text, re.DOTALL)
+        if json_match:
+            # Try to fix common AI formatting issues (line breaks in strings)
+            potential_json = json_match.group(1).replace('\n', ' ')
+            try:
+                return json.loads(potential_json)
+            except:
+                # If first/last fails, try a non-greedy search for the first valid object
+                try: 
+                    # Cleaning up common trailing commas or bad chars
+                    cleaned = re.sub(r',\s*}', '}', potential_json)
+                    return json.loads(cleaned)
+                except:
+                    pass
+
+        # 3. Last resort: print what actually came back for debugging
+        print(f"⚠️ Failed to extract JSON. AI Raw Output: {text[:200]}...")
+        return {}
+    except Exception as e:
+        print(f"❌ Error during JSON extraction: {e}")
+        return {}
 
 async def generate_repair_guide(image_path: str, context: list) -> dict:
     # 1. Prepare Context String
@@ -63,68 +284,61 @@ async def generate_repair_guide(image_path: str, context: list) -> dict:
     """
     
     # 4. Try LLM Call with Resiliency (Retry + Fallback)
-    import logging
-    from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
-    
-    # Helper to call LLM with retry
-    @retry(
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        stop=stop_after_attempt(3),
-        reraise=True
-    )
-    async def _call_llm_with_retry(model, messages, model_name="LLM"):
-        logging.info(f"Attempting structured invocation with {model_name}...")
-        structured_llm = model.with_structured_output(RepairGuideOutput)
-        return await structured_llm.ainvoke(messages)
+    async def _call_llm_with_resiliency(prompt, image):
+        # 1. Try Gemini Direct (Primary)
+        print(f"--- ATTEMPTING GEMINI DIRECT ---", flush=True)
+        res = await call_gemini_direct(prompt, image)
+        if "text" in res:
+            json_data = extract_json_from_text(res["text"])
+            if json_data: return json_data
 
-    response_model = None
+        # 2. Try Groq Direct (The "Reliable" Fallback)
+        print(f"--- FALLING BACK TO GROQ (Llama 3.3) ---", flush=True)
+        groq_res = await call_groq_direct(prompt)
+        if groq_res: return groq_res
+        
+        # 3. Last Resort: OpenRouter
+        print(f"--- LAST RESORT: OPENROUTER ---", flush=True)
+        return await call_openrouter_json_direct(prompt)
 
-    # First try Primary LLM (Gemini with Vision)
-    primary_blocks = [{"type": "text", "text": prompt_text}]
-    if image_path:
-        base64_image = encode_image(image_path)
-        primary_blocks.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-        })
-    
-    try:
-        response_model = await _call_llm_with_retry(llm, [HumanMessage(content=primary_blocks)], "Gemini Primary")
-    except Exception as e:
-        print(f"⚠️ Primary LLM (Gemini) failed after retries: {e}. Falling back to Groq...")
-        
-        # Fallback to Text-Only Groq model
-        fallback_llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
-            api_key=settings.GROQ_API_KEY,
-            temperature=0,
-            max_retries=2
-        )
-        
-        fallback_prompt = prompt_text + "\n\nNote: Visual analysis is disabled (Text-Only Mode). Rely on the Manual Context."
-        fallback_blocks = [{"type": "text", "text": fallback_prompt}]
-        
+    response_model = await _call_llm_with_resiliency(prompt_text, image_path if image_path else None)
+
+    # 5. Handle Results or Return Error Defaults (with STRICT Schema Normalization)
+    def normalize_result(data: dict) -> dict:
+        """Forces the AI dict into the exact schema expected by the Frontend."""
+        # Map common AI variations to strictly underscored keys
+        remapped = {
+            "machine_part": str(data.get("machine_part") or data.get("machine-part") or data.get("machinePart") or "Unknown Part"),
+            "failure_type": str(data.get("failure_type") or data.get("failure-type") or data.get("failureType") or "Unknown Failure"),
+            "repair_steps": list(data.get("repair_steps") or data.get("repair-steps") or data.get("repairSteps") or ["Check machine manual."]),
+            "tools_required": list(data.get("tools_required") or data.get("tools-required") or data.get("toolsRequired") or ["Standard tools"]),
+        }
+        # Clean number conversion for time
         try:
-            response_model = await _call_llm_with_retry(fallback_llm, [HumanMessage(content=fallback_blocks)], "Groq Fallback")
-        except Exception as e2:
-            print(f"❌ Fallback LLM (Groq) also failed: {e2}")
+            raw_time = data.get("estimated_time_minutes") or data.get("time") or 60
+            remapped["estimated_time_minutes"] = int(re.search(r'\d+', str(raw_time)).group())
+        except:
+            remapped["estimated_time_minutes"] = 60
+            
+        return remapped
 
-    # 5. Handle Results or Return Error Defaults
-    if response_model:
-        return response_model.model_dump()
+    # Final normalized result
+    final_output = {}
+    if response_model and hasattr(response_model, 'model_dump'):
+        final_output = normalize_result(response_model.model_dump())
+    elif isinstance(response_model, dict) and response_model:
+        final_output = normalize_result(response_model)
     else:
-        # Failsafe default dictionary if both models fail
-        return {
-            "machine_part": "Unknown Part (AI Error)",
+        # Failsafe default dictionary if all models fail
+        final_output = {
+            "machine_part": "System Busy (AI Error)",
             "failure_type": "Analysis Failed due to API limits",
-            "repair_steps": [
-                "1. Manual intervention required.", 
-                "2. System APIs are currently overloaded.", 
-                "3. Please check physical diagrams."
-            ],
-            "tools_required": ["Safety gear", "Standard toolkit"],
+            "repair_steps": ["1. Manual intervention required.", "2. Please check physical diagrams."],
+            "tools_required": ["Safety gear"],
             "estimated_time_minutes": 60
         }
+
+    return final_output
 
 async def retrieve_node(state: AgentState):
     print("--- RETRIEVING DOCUMENTS (SMART HYBRID + RRF) ---")
@@ -134,33 +348,79 @@ async def retrieve_node(state: AgentState):
     
     search_query = query_text
     
-    # 1. Vision-Based Captioning: Generate a text query from the image
-    #    This gives us a text vector even when the user only uploads an image,
-    #    enabling RRF fusion (image vector + generated text vector).
     if image_path:
-        print("--- GENERATING SEARCH QUERY FROM IMAGE ---")
         try:
             base64_image = encode_image(image_path)
-            prompt = "Identify this machine part and provide 3-5 keywords to search for it in a technical manual. Return only the keywords."
+            prompt = "Identify this machine part and provide 3-5 keywords for a technical manual search. Return ONLY the keywords."
             
-            message = HumanMessage(content=[
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-            ])
+            if _GEMINI_EXHAUSTED:
+                print("⏭️ Gemini exhausted. Skipping vision and using direct fallback...")
+                raise Exception("Quota Exhausted")
+
+            print("--- ATTEMPTING GEMINI VISION DIRECT ---")
+            res = await call_gemini_direct(prompt, image_path)
             
-            response = await llm.ainvoke([message])
-            generated_query = response.content.strip()
-            print(f"Generated Query: {generated_query}")
-            
-            # Combine user text with vision-generated keywords for richer search
-            if search_query:
-                search_query = f"{search_query} {generated_query}"
+            if "text" in res:
+                generated_query = res["text"].strip()
             else:
-                search_query = generated_query
+                # Direct Fallback to OpenRouter (Direct HTTP)
+                print(f"⚠️ Gemini Vision failed. Falling back to OpenRouter...")
+                async with httpx.AsyncClient() as client:
+                    response_raw = await client.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                            "HTTP-Referer": "http://localhost:3000",
+                            "X-Title": "Industrial RAG",
+                        },
+                        json={
+                            "model": "google/gemma-3-12b-it:free", 
+                            "messages": [
+                                {"role": "user", "content": [
+                                    {"type": "text", "text": prompt},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                                ]}
+                            ],
+                            "reasoning": {"enabled": True}
+                        },
+                        timeout=30.0
+                    )
+                    
+                    if response_raw.status_code == 200:
+                        data = response_raw.json()
+                        generated_query = data['choices'][0]['message']['content'].strip()
+                    elif response_raw.status_code == 429:
+                        print(f"⚠️ Gemma 3 Vision busy (429). Trying Llama (Text-Only) fallback...")
+                        # Triple Fallback: If both vision models fail, try a Llama text query
+                        response_raw = await client.post(
+                            "https://openrouter.ai/api/v1/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                                "HTTP-Referer": "http://localhost:3000",
+                                "X-Title": "Industrial RAG",
+                            },
+                            json={
+                                "model": "meta-llama/llama-3.3-70b-instruct:free",
+                                "messages": [{"role": "user", "content": f"Based on this industrial failure context, suggest search keywords: {prompt}"}],
+                            },
+                            timeout=30.0
+                        )
+                        if response_raw.status_code == 200:
+                            data = response_raw.json()
+                            generated_query = data['choices'][0]['message']['content'].strip()
+                        else:
+                            generated_query = "maintenance"
+                    else:
+                        print(f"ℹ️ OpenRouter Gemma 3 Vision fallback failed (Code {response_raw.status_code}). Using keyword 'maintenance'.")
+                        generated_query = "maintenance"
+
+            print(f"Generated Keywords: {generated_query}")
+            search_query = f"{search_query} {generated_query}".strip()
+            
         except Exception as e:
-            print(f"Error generating query from image: {e}")
+            print(f"General Error in query generation: {e}")
             if not search_query:
-                search_query = "industrial machine repair manual"
+                search_query = "industrial machine repair"
 
     # 2. Fallback text query
     if not search_query:

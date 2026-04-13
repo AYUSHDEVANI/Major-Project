@@ -13,10 +13,18 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown (cleanup if needed)
 
-app = FastAPI(title="Multi-Modal Vision-Language RAG API", lifespan=lifespan)
+app = FastAPI(
+    title="Multi-Modal Vision-Language RAG API",
+    description="Industrial Maintenance RAG System with Multi-Modal Search",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/docs",           # ← Explicitly enable Swagger UI
+    redoc_url="/redoc",         # ← Enable alternate docs (optional)
+    openapi_url="/openapi.json" # ← Enable OpenAPI schema
+)
 
 # Configure CORS (configurable via CORS_ORIGINS env var)
-default_origins = "http://localhost,http://localhost:5173,http://localhost:3000"
+default_origins = "http://localhost,http://localhost:5173,http://localhost:3000,https://huggingface.co"
 origins = os.getenv("CORS_ORIGINS", default_origins).split(",")
 
 app.add_middleware(
@@ -42,3 +50,25 @@ app.include_router(chat.router, prefix="/api/v1", tags=["Support Chat"])
 async def root():
     return {"message": "Welcome to the Industrial Maintenance RAG System"}
 
+
+@app.get("/debug/routes")
+async def list_routes():
+    """List all registered routes for debugging"""
+    return {
+        "registered_routes": [
+            {"path": route.path, "methods": route.methods, "name": route.name}
+            for route in app.routes
+            if hasattr(route, "path") and not route.path.startswith("/debug")
+        ]
+    }
+
+@app.get("/debug/info")
+async def debug_info():
+    """Return app configuration for debugging"""
+    return {
+        "title": app.title,
+        "docs_url": app.docs_url,
+        "redoc_url": app.redoc_url,
+        "openapi_url": app.openapi_url,
+        "cors_origins": [m.middleware.cls.__name__ for m in app.user_middleware if "CORSMiddleware" in str(m.middleware.cls)],
+    }

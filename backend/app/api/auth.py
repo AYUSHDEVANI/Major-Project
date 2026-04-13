@@ -20,13 +20,14 @@ class SetupAdminRequest(BaseModel):
 @router.post("/setup-admin", summary="Setup a new company with its first Admin user")
 def setup_admin(data: SetupAdminRequest, db: Session = Depends(get_db)):
     """Create a new Company and its first Admin user. One admin per company via this route."""
+    email = data.email.lower()
     # Check if company already exists
     existing_company = db.query(Company).filter(Company.name == data.company_name).first()
     if existing_company:
         raise HTTPException(status_code=400, detail=f"Company '{data.company_name}' already exists. Contact the existing admin.")
     
     # Check if email already taken
-    existing_user = db.query(User).filter(User.email == data.email).first()
+    existing_user = db.query(User).filter(User.email == email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="A user with this email already exists.")
         
@@ -45,7 +46,7 @@ def setup_admin(data: SetupAdminRequest, db: Session = Depends(get_db)):
     
     # 2. Create Admin user linked to this company
     admin = User(
-        email=data.email,
+        email=email,
         hashed_password=get_password_hash(data.password),
         role="admin",
         company_id=company.id,
@@ -67,6 +68,7 @@ class SetupSuperAdminRequest(BaseModel):
 @router.post("/setup-superadmin", summary="Setup the initial platform super admin")
 def setup_superadmin(data: SetupSuperAdminRequest, db: Session = Depends(get_db)):
     """Creates the first and only super admin. Fails if a super admin already exists."""
+    email = data.email.lower()
     # Ensure no superadmin exists yet
     existing_superadmin = db.query(User).filter(User.role == "superadmin").first()
     if existing_superadmin:
@@ -90,7 +92,7 @@ def setup_superadmin(data: SetupSuperAdminRequest, db: Session = Depends(get_db)
 
     # Create Super Admin User
     superadmin = User(
-        email=data.email,
+        email=email,
         hashed_password=get_password_hash(data.password),
         role="superadmin",
         company_id=platform_company.id,
@@ -107,7 +109,8 @@ def setup_superadmin(data: SetupSuperAdminRequest, db: Session = Depends(get_db)
 @router.post("/login", summary="Exchange credentials for JWT tokens")
 def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """Validates email/password, returns Access Token, sets HttpOnly cookie for Refresh Token."""
-    user = db.query(User).filter(User.email == form_data.username).first()
+    email = form_data.username.lower()
+    user = db.query(User).filter(User.email == email).first()
     
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(

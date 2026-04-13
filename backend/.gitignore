@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-wheel-metadata/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+local_qdrant_db/
+data/temp/
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Env files
+.env
+.env.local
+*.env
+
+# Build
+dist/
+build/
+*.egg-info/

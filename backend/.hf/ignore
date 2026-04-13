@@ -1,0 +1,4 @@
+# Prevent HF Spaces from serving static files that override FastAPI
+README.md
+*.md
+index.html

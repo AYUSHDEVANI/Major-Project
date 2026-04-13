@@ -24,9 +24,9 @@ if not JWT_PRIVATE_KEY or not JWT_PUBLIC_KEY:
 
 # Because standard .env sometimes wraps newlines in quoted strings literally:
 if JWT_PRIVATE_KEY:
-    JWT_PRIVATE_KEY = JWT_PRIVATE_KEY.replace('\\n', '\n')
+    JWT_PRIVATE_KEY = JWT_PRIVATE_KEY.strip('"').replace('\\n', '\n')
 if JWT_PUBLIC_KEY:
-    JWT_PUBLIC_KEY = JWT_PUBLIC_KEY.replace('\\n', '\n')
+    JWT_PUBLIC_KEY = JWT_PUBLIC_KEY.strip('"').replace('\\n', '\n')
 
 ALGORITHM = "RS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15
