@@ -67,6 +67,9 @@ async def search_similar(
     are available. Falls back to single-modality search otherwise.
     All results are filtered by company_id for multi-tenant isolation.
     """
+    from app.rag.ingestion import ensure_collection_exists
+    ensure_collection_exists()
+    
     embedding_model = get_embeddings_model()
     query_filter = _build_company_filter(company_id)
     

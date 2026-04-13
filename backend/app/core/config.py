@@ -20,20 +20,11 @@ class Settings(BaseSettings):
     QDRANT_URL: Optional[str] = None
     QDRANT_API_KEY: Optional[str] = None
     
-    COLLECTION_NAME: str = "manuals"
+    COLLECTION_NAME: str = "manuals_v2" # Updated for Google Embeddings
     
     # Model Config
-    # using ViT-B-32 for decent balance of speed/performance
-    # Upgrade path: ViT-L-14 + datacomp_xl_s13b_b90k (768-dim, better accuracy)
-    OPENCLIP_MODEL_NAME: str = "ViT-B-32" 
-    OPENCLIP_PRETRAINED: str = "laion2b_s34b_b79k"
-    
-    # Embedding dimension lookup (must match the CLIP model)
-    _CLIP_DIMS = {"ViT-B-32": 512, "ViT-B-16": 512, "ViT-L-14": 768, "ViT-H-14": 1024}
-    
-    @property
-    def EMBEDDING_DIM(self) -> int:
-        return self._CLIP_DIMS.get(self.OPENCLIP_MODEL_NAME, 512)
+    # Now using Google Cloud Embeddings (768-dim) to save local RAM
+    EMBEDDING_DIM: int = 768
     
     # Agent Config
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")

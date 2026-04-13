@@ -1,71 +1,77 @@
 import hashlib
-from typing import List
-import open_clip
-import torch
-from langchain_core.embeddings import Embeddings
+from typing import List, Optional
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from app.core.config import settings
-from PIL import Image
 from cachetools import LRUCache
 
 # LRU cache for text embedding vectors (deterministic for same input)
-_text_embedding_cache = LRUCache(maxsize=512)
+_text_embedding_cache = LRUCache(maxsize=1024)
 
-class OpenCLIPEmbeddings(Embeddings):
+class CloudEmbeddings:
+    """
+    Wrapper for Google Cloud Embeddings to maintain compatibility with 
+    the rest of the RAG system while removing local Model/Torch overhead.
+    """
     def __init__(self):
-        self.model, _, self.preprocess = open_clip.create_model_and_transforms(
-            settings.OPENCLIP_MODEL_NAME, 
-            pretrained=settings.OPENCLIP_PRETRAINED
+        print("🚀 Initializing Google Cloud Embeddings (gemini-embedding-001)...")
+        self.client = GoogleGenerativeAIEmbeddings(
+            model="models/gemini-embedding-001",
+            google_api_key=settings.GOOGLE_API_KEY,
+            task_type="retrieval_document",
+            output_dimensionality=768
         )
-        self.tokenizer = open_clip.get_tokenizer(settings.OPENCLIP_MODEL_NAME)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model.to(self.device)
-        self.model.eval()
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Embed a list of texts, using cache for previously seen strings."""
+        """Embed a list of texts using cloud API and local cache."""
         results = [None] * len(texts)
         uncached_indices = []
         uncached_texts = []
 
         for i, text in enumerate(texts):
-            cache_key = hashlib.md5(text.encode()).hexdigest()
+            # Clean text to ensure cache hits
+            clean_text = text.strip()
+            cache_key = hashlib.md5(clean_text.encode()).hexdigest()
+            
             if cache_key in _text_embedding_cache:
                 results[i] = _text_embedding_cache[cache_key]
             else:
                 uncached_indices.append(i)
-                uncached_texts.append(text)
+                uncached_texts.append(clean_text)
 
-        # Batch-embed only uncached texts
+        # Send batch to Google API only for uncached texts
         if uncached_texts:
-            with torch.no_grad():
-                tokenized = self.tokenizer(uncached_texts).to(self.device)
-                embeddings = self.model.encode_text(tokenized)
-                embeddings /= embeddings.norm(dim=-1, keepdim=True)
-                new_vectors = embeddings.cpu().tolist()
-
-            for j, idx in enumerate(uncached_indices):
-                cache_key = hashlib.md5(uncached_texts[j].encode()).hexdigest()
-                _text_embedding_cache[cache_key] = new_vectors[j]
-                results[idx] = new_vectors[j]
+            try:
+                new_vectors = self.client.embed_documents(uncached_texts)
+                for j, idx in enumerate(uncached_indices):
+                    cache_key = hashlib.md5(uncached_texts[j].encode()).hexdigest()
+                    _text_embedding_cache[cache_key] = new_vectors[j]
+                    results[idx] = new_vectors[j]
+            except Exception as e:
+                print(f"❌ Cloud Embedding Error: {e}")
+                # Return zero vectors as failsafe if API is down
+                for idx in uncached_indices:
+                    results[idx] = [0.0] * settings.EMBEDDING_DIM
 
         return results
 
     def embed_query(self, text: str) -> List[float]:
+        """Convert a single query string to a vector."""
         return self.embed_documents([text])[0]
     
     def embed_image(self, image_path: str) -> List[float]:
-        image = self.preprocess(Image.open(image_path)).unsqueeze(0).to(self.device)
-        with torch.no_grad():
-            image_features = self.model.encode_image(image)
-            image_features /= image_features.norm(dim=-1, keepdim=True)
-            return image_features.cpu().tolist()[0]
+        """
+        FALLBACK: Google text-embedding-004 does not support images.
+        We return a Zero vector to prevent crashes in multimodal code paths.
+        Upgrade path: Use Vertex AI 'multimodalembedding' for image support.
+        """
+        print("⚠️ Warning: Image search is disabled in Cloud-Only mode.")
+        return [0.0] * settings.EMBEDDING_DIM
 
 _embedding_model_instance = None
 
-def get_embeddings_model() -> OpenCLIPEmbeddings:
-    """Lazy-loaded singleton instance for the embedding model."""
+def get_embeddings_model() -> CloudEmbeddings:
+    """Lazy-loaded singleton instance for the cloud embedding provider."""
     global _embedding_model_instance
     if _embedding_model_instance is None:
-        print("Initializing OpenCLIPEmbeddings model (Singleton)...")
-        _embedding_model_instance = OpenCLIPEmbeddings()
+        _embedding_model_instance = CloudEmbeddings()
     return _embedding_model_instance

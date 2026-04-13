@@ -79,34 +79,58 @@ export default function ChatWidget() {
     setIsTyping(true);
 
     try {
+      console.log("🚀 Starting Super-SSE Stream to:", api.getChatStream);
+      
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => abortController.abort(), 60000); // 1 minute timeout
+
       const response = await api.getChatStream(userMsg, currentContextId, currentSessionId || undefined);
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Server responded with ${response.status}: ${errorText}`);
+      }
+
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       
       let assistantMsg = '';
-      let buffer = ''; // ADDED: Buffer for partial SSE chunks
+      let buffer = '';
       
       setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
       while (true) {
         const { done, value } = await reader!.read();
-        if (done) break;
+        if (done) {
+            console.log("✅ SSE Stream completed naturally.");
+            break;
+        }
 
-        buffer += decoder.decode(value, { stream: true });
+        const decoded = decoder.decode(value, { stream: true });
+        buffer += decoded;
         
         // Process all complete SSE messages in the buffer
         const payloads = buffer.split('\n\n');
-        buffer = payloads.pop() || ''; // Keep incomplete segment
+        buffer = payloads.pop() || '';
         
         for (const payload of payloads) {
-          if (payload.startsWith('data: ')) {
+          const trimPayload = payload.trim();
+          if (!trimPayload) continue;
+
+          // Handle Pings/Comments (start with :)
+          if (trimPayload.startsWith(':')) {
+              console.log("ping received");
+              continue;
+          }
+
+          if (trimPayload.startsWith('data: ')) {
             try {
-              const data = JSON.parse(payload.slice(6));
+              const data = JSON.parse(trimPayload.slice(6));
               
-              // If backend created a new session, track it
               if (data.session_id && !currentSessionId) {
                 setCurrentSessionId(data.session_id);
-                loadSessions(); // Refresh list
+                loadSessions();
               }
 
               if (data.text) {
@@ -125,30 +149,23 @@ export default function ChatWidget() {
                     return newMsgs;
                 });
               }
+              
+              if (data.status === 'done') {
+                  console.log("🏁 AI finished response.");
+              }
             } catch (e) {
-              console.warn("Partial SSE parse error (safe to ignore):", e);
+              console.warn("Partial JSON Error:", e, "Payload:", trimPayload);
             }
           }
         }
       }
-
-      // Handle any remaining data in buffer after stream closes
-      if (buffer.trim().startsWith('data: ')) {
-          try {
-              const data = JSON.parse(buffer.trim().slice(6));
-              if (data.text) {
-                  assistantMsg += data.text;
-                  setMessages(prev => {
-                      const newMsgs = [...prev];
-                      newMsgs[newMsgs.length - 1].content = assistantMsg;
-                      return newMsgs;
-                  });
-              }
-          } catch (e) {}
-      }
-    } catch (error) {
-      console.error("Chat error:", error);
-      setMessages(prev => [...prev, { role: 'assistant', content: "I'm sorry, I encountered an error connectng to the AI. Please try again later." }]);
+    } catch (error: any) {
+      console.error("❌ CRITICAL CHAT ERROR:", error);
+      let errorDisplay = "I'm sorry, I encountered a connection error. ";
+      if (error.name === 'AbortError') errorDisplay += "The request timed out. Please try a shorter question.";
+      else errorDisplay += error.message || "Please check your network.";
+      
+      setMessages(prev => [...prev, { role: 'assistant', content: errorDisplay }]);
     } finally {
       setIsTyping(false);
     }

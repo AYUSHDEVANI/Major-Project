@@ -98,7 +98,11 @@ async def chat_support(
 
     async def event_generator():
         try:
-            # Send session ID first so frontend can track it
+            # P0: Priming the connection (Bypass MIME sniffing and Cloudflare buffering)
+            # Yield a 1KB padding or just a clear comment to signal stream start
+            yield ": ping\n\n" 
+            
+            # Send session ID so frontend can track it
             yield f"data: {json.dumps({'status': 'searching', 'session_id': active_session_id})}\n\n"
             
             # --- MOVE HEAVY RETRIEVAL INSIDE GENERATOR ---
@@ -198,4 +202,13 @@ async def chat_support(
         except Exception as e:
             yield f"data: {json.dumps({'error': f'Support Chat Error: {str(e)}'})}\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disables buffering in Nginx
+            "Transfer-Encoding": "chunked",
+        }
+    )
