@@ -172,8 +172,8 @@ async def chunk_and_store(file: UploadFile, company_id: int = 0):
                 payload=payload
             ))
 
-    # Upsert to Qdrant
     if points:
+        print(f"📦 Storing {len(points)} chunks into Qdrant collection '{settings.COLLECTION_NAME}'...")
         # Batch upsert in groups of 100 for large documents
         batch_size = 100
         for i in range(0, len(points), batch_size):
@@ -182,6 +182,8 @@ async def chunk_and_store(file: UploadFile, company_id: int = 0):
                 collection_name=settings.COLLECTION_NAME,
                 points=batch
             )
+    else:
+        print("⚠️ WARNING: 0 chunks were extracted from this PDF. Is it a scanned document?")
         
     logger.info(f"Ingested {len(points)} chunks from {file.filename}")
     return {

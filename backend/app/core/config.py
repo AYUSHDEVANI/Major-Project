@@ -20,11 +20,11 @@ class Settings(BaseSettings):
     QDRANT_URL: Optional[str] = None
     QDRANT_API_KEY: Optional[str] = None
     
-    COLLECTION_NAME: str = "manuals_v2" # Updated for Google Embeddings
+    COLLECTION_NAME: str = "manuals_v3" # Updated for Local MiniLM Embeddings
     
     # Model Config
-    # Now using Google Cloud Embeddings (768-dim) to save local RAM
-    EMBEDDING_DIM: int = 768
+    # Now using Local MiniLM (384-dim) - Tiny (80MB), stable, and region-independent
+    EMBEDDING_DIM: int = 384
     
     # Agent Config
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")

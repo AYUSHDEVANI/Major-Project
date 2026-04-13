@@ -132,6 +132,7 @@ def _single_vector_search(vector: List[float], top_k: int, query_filter=None) ->
         limit=top_k
     ).points
 
+    print(f"🔍 Qdrant Search (Collection: {settings.COLLECTION_NAME}): Found {len(search_result)} raw points for filter company_id={settings.COLLECTION_NAME if query_filter else 'None'}")
     return [_format_result(hit) for hit in search_result]
 
 

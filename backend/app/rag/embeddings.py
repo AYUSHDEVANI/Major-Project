@@ -1,34 +1,30 @@
 import hashlib
 from typing import List, Optional
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from sentence_transformers import SentenceTransformer
 from app.core.config import settings
 from cachetools import LRUCache
 
-# LRU cache for text embedding vectors (deterministic for same input)
+# LRU cache for embedding vectors
 _text_embedding_cache = LRUCache(maxsize=1024)
 
-class CloudEmbeddings:
+class LocalEmbeddings:
     """
-    Wrapper for Google Cloud Embeddings to maintain compatibility with 
-    the rest of the RAG system while removing local Model/Torch overhead.
+    Lightweight local embedding provider using all-MiniLM-L6-v2.
+    Size: ~80MB, RAM usage: ~150MB.
+    This replaces cloud APIs to avoid regional restrictions (403 errors).
     """
     def __init__(self):
-        print("🚀 Initializing Google Cloud Embeddings (gemini-embedding-001)...")
-        self.client = GoogleGenerativeAIEmbeddings(
-            model="models/gemini-embedding-001",
-            google_api_key=settings.GOOGLE_API_KEY,
-            task_type="retrieval_document",
-            output_dimensionality=768
-        )
+        print("🚀 Initializing Local MiniLM Embeddings (all-MiniLM-L6-v2)...")
+        # Downloads model once (~80MB), then loads from disk
+        self.model = SentenceTransformer('all-MiniLM-L6-v2')
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Embed a list of texts using cloud API and local cache."""
+        """Embed a list of texts using local model and cache."""
         results = [None] * len(texts)
         uncached_indices = []
         uncached_texts = []
 
         for i, text in enumerate(texts):
-            # Clean text to ensure cache hits
             clean_text = text.strip()
             cache_key = hashlib.md5(clean_text.encode()).hexdigest()
             
@@ -38,17 +34,16 @@ class CloudEmbeddings:
                 uncached_indices.append(i)
                 uncached_texts.append(clean_text)
 
-        # Send batch to Google API only for uncached texts
         if uncached_texts:
             try:
-                new_vectors = self.client.embed_documents(uncached_texts)
+                # Local inference is fast and free
+                new_vectors = self.model.encode(uncached_texts).tolist()
                 for j, idx in enumerate(uncached_indices):
                     cache_key = hashlib.md5(uncached_texts[j].encode()).hexdigest()
                     _text_embedding_cache[cache_key] = new_vectors[j]
                     results[idx] = new_vectors[j]
             except Exception as e:
-                print(f"❌ Cloud Embedding Error: {e}")
-                # Return zero vectors as failsafe if API is down
+                print(f"❌ Local Embedding Error: {e}")
                 for idx in uncached_indices:
                     results[idx] = [0.0] * settings.EMBEDDING_DIM
 
@@ -58,20 +53,17 @@ class CloudEmbeddings:
         """Convert a single query string to a vector."""
         return self.embed_documents([text])[0]
     
-    def embed_image(self, image_path: str) -> List[float]:
+    def embed_image(self, image_path: str) -> Optional[List[float]]:
         """
-        FALLBACK: Google text-embedding-004 does not support images.
-        We return a Zero vector to prevent crashes in multimodal code paths.
-        Upgrade path: Use Vertex AI 'multimodalembedding' for image support.
+        MiniLM is text-only. Returns None to signal that image search is unsupported.
         """
-        print("⚠️ Warning: Image search is disabled in Cloud-Only mode.")
-        return [0.0] * settings.EMBEDDING_DIM
+        return None
 
 _embedding_model_instance = None
 
-def get_embeddings_model() -> CloudEmbeddings:
-    """Lazy-loaded singleton instance for the cloud embedding provider."""
+def get_embeddings_model() -> LocalEmbeddings:
+    """Lazy-loaded singleton for the local embedding model."""
     global _embedding_model_instance
     if _embedding_model_instance is None:
-        _embedding_model_instance = CloudEmbeddings()
+        _embedding_model_instance = LocalEmbeddings()
     return _embedding_model_instance
