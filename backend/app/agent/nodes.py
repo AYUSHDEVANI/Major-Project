@@ -67,6 +67,14 @@ fallback_llm = ChatOpenAI(
     max_retries=0
 )
 
+# Groq Instance for High-Speed Chat
+groq_llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    api_key=settings.GROQ_API_KEY,
+    temperature=0.1,
+    max_retries=0
+)
+
 
 def encode_image(image_path):
     with open(image_path, "rb") as image_file:

@@ -84,19 +84,24 @@ export default function ChatWidget() {
       const decoder = new TextDecoder();
       
       let assistantMsg = '';
+      let buffer = ''; // ADDED: Buffer for partial SSE chunks
+      
       setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
       while (true) {
         const { done, value } = await reader!.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+        buffer += decoder.decode(value, { stream: true });
         
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
+        // Process all complete SSE messages in the buffer
+        const payloads = buffer.split('\n\n');
+        buffer = payloads.pop() || ''; // Keep incomplete segment
+        
+        for (const payload of payloads) {
+          if (payload.startsWith('data: ')) {
             try {
-              const data = JSON.parse(line.slice(6));
+              const data = JSON.parse(payload.slice(6));
               
               // If backend created a new session, track it
               if (data.session_id && !currentSessionId) {
@@ -112,11 +117,34 @@ export default function ChatWidget() {
                   return newMsgs;
                 });
               }
+
+              if (data.error) {
+                setMessages(prev => {
+                    const newMsgs = [...prev];
+                    newMsgs[newMsgs.length - 1].content = `⚠️ ${data.error}`;
+                    return newMsgs;
+                });
+              }
             } catch (e) {
-              // Ignore partial chunk errors
+              console.warn("Partial SSE parse error (safe to ignore):", e);
             }
           }
         }
+      }
+
+      // Handle any remaining data in buffer after stream closes
+      if (buffer.trim().startsWith('data: ')) {
+          try {
+              const data = JSON.parse(buffer.trim().slice(6));
+              if (data.text) {
+                  assistantMsg += data.text;
+                  setMessages(prev => {
+                      const newMsgs = [...prev];
+                      newMsgs[newMsgs.length - 1].content = assistantMsg;
+                      return newMsgs;
+                  });
+              }
+          } catch (e) {}
       }
     } catch (error) {
       console.error("Chat error:", error);
