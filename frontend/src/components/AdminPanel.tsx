@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import { useAppStore } from '../store/appStore';
 import { Users, FileText, Plus, Trash2, ToggleLeft, ToggleRight, AlertCircle, Upload, Shield } from 'lucide-react';
 
-interface UserItem { email: string; role: string; is_active: boolean; }
+interface UserItem { id: number; email: string; role: string; is_active: boolean; }
 interface DocItem { id: number; filename: string; source: string; page_count: number; chunk_count: number; is_active: boolean; uploaded_at: string; }
 
 export default function AdminPanel() {
@@ -53,13 +53,12 @@ export default function AdminPanel() {
     } catch (err: any) { setError(err.response?.data?.detail || 'Failed to create user'); }
   };
 
-  const handleToggleUser = async (email: string) => {
-    try { await api.toggleUser(email); await fetchUsers(); } catch (e: any) { setError(e.response?.data?.detail || 'Toggle failed'); }
+  const handleToggleUser = async (user_id: number) => {
+    try { await api.toggleUser(user_id); await fetchUsers(); } catch (e: any) { setError(e.response?.data?.detail || 'Toggle failed'); }
   };
-
-  const handleDeleteUser = async (email: string) => {
+  const handleDeleteUser = async (user_id: number) => {
     if (!confirm('Are you sure you want to delete this user?')) return;
-    try { await api.deleteUser(email); flashSuccess('User deleted.'); await fetchUsers(); } catch (e: any) { setError(e.response?.data?.detail || 'Delete failed'); }
+    try { await api.deleteUser(user_id); flashSuccess('User deleted.'); await fetchUsers(); } catch (e: any) { setError(e.response?.data?.detail || 'Delete failed'); }
   };
 
   const handleToggleDoc = async (docId: number) => {
@@ -168,10 +167,10 @@ export default function AdminPanel() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right space-x-2">
-                      <button onClick={() => handleToggleUser(u.email)} className="text-gray-400 hover:text-blue-600 transition" title={u.is_active ? 'Disable' : 'Enable'}>
+                      <button onClick={() => handleToggleUser(u.id)} className="text-gray-400 hover:text-blue-600 transition" title={u.is_active ? 'Disable' : 'Enable'}>
                         {u.is_active ? <ToggleRight className="w-5 h-5 inline text-green-500" /> : <ToggleLeft className="w-5 h-5 inline" />}
                       </button>
-                      <button onClick={() => handleDeleteUser(u.email)} className="text-gray-400 hover:text-red-600 transition" title="Delete">
+                      <button onClick={() => handleDeleteUser(u.id)} className="text-gray-400 hover:text-red-600 transition" title="Delete">
                         <Trash2 className="w-4 h-4 inline" />
                       </button>
                     </td>

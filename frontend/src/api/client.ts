@@ -170,12 +170,12 @@ export const api = {
         const response = await apiClient.post('/admin/users', data);
         return response.data;
     },
-    deleteUser: async (email: string) => {
-        const response = await apiClient.delete(`/admin/users/${encodeURIComponent(email)}`);
+    deleteUser: async (userId: number) => {
+        const response = await apiClient.delete(`/admin/users/${userId}`);
         return response.data;
     },
-    toggleUser: async (email: string) => {
-        const response = await apiClient.patch(`/admin/users/${encodeURIComponent(email)}/toggle`);
+    toggleUser: async (userId: number) => {
+        const response = await apiClient.patch(`/admin/users/${userId}/toggle`);
         return response.data;
     },
 
@@ -184,8 +184,12 @@ export const api = {
         const response = await apiClient.get('/admin/documents');
         return response.data;
     },
-    toggleDocument: async (filename: string) => {
-        const response = await apiClient.patch(`/admin/documents/${encodeURIComponent(filename)}/toggle`);
+    toggleDocument: async (docId: number) => {
+        const response = await apiClient.patch(`/admin/documents/${docId}/toggle`);
+        return response.data;
+    },
+    deleteDocument: async (docId: number) => {
+        const response = await apiClient.delete(`/admin/documents/${docId}`);
         return response.data;
     },
 

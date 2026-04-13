@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, Send, Bot, User, Minimize2, Loader2, Info, Paperclip, Link as LinkIcon } from 'lucide-react';
+import { MessageCircle, X, Send, Bot, User, Minimize2, Loader2, Info, Link as LinkIcon } from 'lucide-react';
 import { api } from '../api/client';
 import { useAppStore } from '../store/appStore';
 
@@ -23,7 +23,6 @@ export default function ChatWidget() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Determine active context
-  const activeContext = selectedHistoryItem || (analysisResult?.history_id ? analysisResult : null);
   const contextId = selectedHistoryItem?.id || analysisResult?.history_id;
   const contextName = selectedHistoryItem?.machine_part || analysisResult?.analysis_result?.machine_part;
 
