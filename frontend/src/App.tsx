@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
+import { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import UploadSection from './components/UploadSection';
 import AnalysisResult from './components/AnalysisResult';
 import HistoryView from './components/HistoryView';
